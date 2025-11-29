@@ -179,7 +179,7 @@ def main():
     with tab2:
         st.header("Motor Deliberativo GICES")
         
-        if st.button("▶️ EJECUTAR ANÁLISIS DE INTEGRIDAD", type="primary", use_container_width=True):
+        if st.button("▶️ EJECUTAR ANÁLISIS DE INTEGRIDAD", type="primary", width='stretch'):
             run_script_and_capture_output("mcp_ingest.py", "1. Validación Estructural")
             run_script_and_capture_output("raga_compute.py", "2. Deliberación Ética (IA)")
 
@@ -229,7 +229,7 @@ def main():
             with col_radar:
                 st.subheader("3. Calidad Epistémica")
                 metrics = analysis_data.get('eee_metrics')
-                st.plotly_chart(plot_eee_radar(metrics), use_container_width=True)
+                st.plotly_chart(plot_eee_radar(metrics), width='stretch')
 
             # C. EVIDENCIA
             st.subheader("4. Evidencia Académica (Extractos)")
