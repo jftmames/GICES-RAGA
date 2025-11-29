@@ -2,53 +2,72 @@ import json
 import sys
 from pathlib import Path
 
-# Añadir raíz al path para importar modules
+# Importar el cerebro
 sys.path.append(str(Path(__file__).parent.parent))
-from modules.gices_brain import ingest_pdfs, retrieve_context, deliberative_analysis
+from modules.gices_brain import retrieve_context, deliberative_analysis
 
 DATA_DIR = Path("data/normalized")
 RAGA_DIR = Path("raga")
-KB_DIR = Path("rag/knowledge_base")
+INDEX_FILE = Path("rag/index.json")
+
+def load_json(path):
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return []
 
 def main():
-    RAGA_DIR.mkdir(exist_ok=True, parents=True)
+    print("⚙️ Iniciando Cálculo RAGA...")
+    RAGA_DIR.mkdir(exist_ok=True)
     
-    # 1. Cargar Conocimiento (Fase 0)
-    print("📚 Leyendo biblioteca académica (PDFs)...")
-    kb = ingest_pdfs(KB_DIR)
-    print(f"   - {len(kb)} fragmentos de normativa procesados.")
+    # 1. Cargar Datos Normalizados
+    # Primero ejecutamos mcp_ingest (paso previo en el pipeline), aquí leemos el resultado
+    energy_data = load_json(DATA_DIR / "energy_2024-01.json")
+    biodiv_data = load_json(DATA_DIR / "biodiversity_2024.json") # El dato nuevo
+    
+    kpis = {}
+    explanations = {}
 
-    # 2. Cargar Datos (Fase 1)
-    # Simulamos que leemos el dato de Biodiversidad (E4)
-    # En tu demo real, asegúrate de tener data/normalized/biodiversity_2024.json
-    # Si no existe, creamos uno en memoria para la demo
-    biodiv_data = {
-        "id": "E4-5",
-        "value": 50,
-        "unit": "hectareas",
-        "project": "Nature Credit - Amazonia Reforest",
-        "risk": "High"
-    }
+    # --- A. Lógica Determinista (Energía) ---
+    if energy_data:
+        total_co2 = sum(r["kwh"] * 0.23 for r in energy_data) / 1000
+        kpis["E1-1.co2e"] = total_co2
+        explanations["E1-1"] = {"narrative": "Cálculo aritmético directo (kWh * Factor)."}
+
+    # --- B. Lógica Deliberativa (Biodiversidad) ---
+    if biodiv_data:
+        print("🦋 Dato de Biodiversidad detectado. Activando Validación Académica...")
+        
+        # Cargar Conocimiento (Fase 0)
+        knowledge_base = load_json(INDEX_FILE)
+        if not knowledge_base:
+            print("⚠️ Advertencia: No hay base de conocimiento. Ejecuta ingest_knowledge.py primero.")
+            knowledge_base = []
+
+        # Procesar cada registro de biodiversidad
+        for i, record in enumerate(biodiv_data):
+            kpi_id = f"E4-5.project_{i+1}"
+            kpis[kpi_id] = record["ecosystem_area_ha"]
+            
+            # 1. Recuperar Evidencia (RAGA)
+            query = f"nature credits restoration integrity {record.get('project_type', '')} {record.get('financial_risk_exposure', '')}"
+            context = retrieve_context(query, knowledge_base)
+            
+            # 2. Deliberar (AI)
+            analysis = deliberative_analysis(record, [c["content"] for c in context])
+            
+            # 3. Guardar Explicación Estructurada
+            explanations[kpi_id] = {
+                "type": "deliberative_validation",
+                "narrative": analysis.get("narrative"),
+                "compliance": analysis.get("compliance_check"),
+                "evidence_used": [c["source"] for c in context]
+            }
+
+    # Guardar Resultados
+    (RAGA_DIR / "kpis.json").write_text(json.dumps(kpis, indent=2, ensure_ascii=False))
+    (RAGA_DIR / "explain.json").write_text(json.dumps(explanations, indent=2, ensure_ascii=False))
     
-    # 3. Deliberación (Fase 3 - Integración)
-    print("🧠 Iniciando análisis deliberativo sobre E4 (Biodiversidad)...")
-    
-    # a) Recuperar evidencia
-    query = f"nature credits restoration high integrity {biodiv_data['project']}"
-    context = retrieve_context(query, kb)
-    
-    # b) Razonar
-    analysis = deliberative_analysis(biodiv_data, context)
-    
-    # 4. Guardar Resultados (Fase 5 - Evidencia)
-    output = {
-        "kpi": biodiv_data,
-        "raga_analysis": analysis,
-        "evidence_used": context
-    }
-    
-    (RAGA_DIR / "explain.json").write_text(json.dumps(output, indent=2))
-    print("✅ Razonamiento completado. Resultado guardado en raga/explain.json")
+    print("✅ RAGA Compute Finalizado.")
 
 if __name__ == "__main__":
     main()
