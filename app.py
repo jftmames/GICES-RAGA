@@ -202,10 +202,11 @@ def main():
         st.divider()
         st.info("Proyecto GI GICES")
 
-    t1, t2, t3 = st.tabs(["1. Contexto & Datos", "2. Razonamiento (IA)", "3. Evidencia Forense"])
+    # --- DEFINICIÓN DE PESTAÑAS (CORREGIDO) ---
+    tab_context, tab_deliberation, tab_audit = st.tabs(["1. Contexto & Datos", "2. Razonamiento (IA)", "3. Evidencia Forense"])
 
     # TAB 1
-    with t1:
+    with tab_context:
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Dato Desafiante")
@@ -221,7 +222,7 @@ def main():
                 run_script("ingest_knowledge.py", "Indexando")
 
     # TAB 2
-    with t2:
+    with tab_deliberation:
         st.header("Motor Deliberativo")
         if 'run_done' not in st.session_state: st.session_state.run_done = False
         
@@ -276,8 +277,8 @@ def main():
         elif not st.session_state.run_done:
             st.info("Esperando ejecución...")
 
-    # TAB 3: AUDITORÍA (ROBUSTA & REAL)
-    with tab3:
+    # TAB 3 (CORREGIDO: Uso explícito de la variable tab_audit)
+    with tab_audit:
         st.header("Evidencia Forense Inmutable")
         st.markdown("""
         Esta sección genera un paquete de auditoría que garantiza la **integridad** y **no repudio** de los datos.
