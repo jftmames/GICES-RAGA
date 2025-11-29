@@ -5,6 +5,12 @@ import sys
 import json
 from pathlib import Path
 
+# --- AJUSTE DE SEGURIDAD CRÍTICO ---
+# Inyecta la clave de los secretos de Streamlit en las variables de entorno
+# para que los scripts ejecutados por subprocess (el Cerebro) puedan leerla.
+if "OPENAI_API_KEY" in st.secrets:
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+
 # --- Configuración General ---
 st.set_page_config(
     page_title="GICES-RAGA: Laboratorio de Cumplimiento Cognitivo",
@@ -34,10 +40,11 @@ def run_script_and_capture_output(script_name, description):
     """Ejecuta un script y muestra el log en la UI."""
     script_path = ROOT_DIR / "scripts" / script_name
     
+    # st.status crea un contenedor colapsable animado
     with st.status(f"Ejecutando: {description}...", expanded=True) as status:
         st.write(f"🔧 Script: `{script_name}`")
         try:
-            # sys.executable asegura que usamos el mismo entorno de python
+            # sys.executable asegura que usamos el mismo entorno de python actual
             result = subprocess.run(
                 [sys.executable, str(script_path)],
                 capture_output=True,
@@ -45,21 +52,26 @@ def run_script_and_capture_output(script_name, description):
                 check=True,
                 timeout=120
             )
+            # Mostramos la salida estándar del script
             st.code(result.stdout, language="text")
+            
+            # Marcamos como completado
             status.update(label=f"✅ {description} - Completado", state="complete", expanded=False)
             return True
+            
         except subprocess.CalledProcessError as e:
             status.update(label=f"❌ {description} - Falló", state="error")
             st.error("Error en la ejecución (STDERR):")
             st.code(e.stderr, language="text")
             return False
+            
         except Exception as e:
             status.update(label="❌ Error Inesperado", state="error")
             st.error(str(e))
             return False
 
 def safe_json_display(file_path):
-    """Muestra un JSON si existe."""
+    """Muestra un JSON si existe, o avisa si no."""
     content = load_file_content(file_path)
     if content:
         try:
@@ -74,7 +86,7 @@ def safe_json_display(file_path):
 def main():
     st.title("🎓 GICES-RAGA: Laboratorio de Cumplimiento Cognitivo")
     st.markdown("""
-    **Validación Académica de Riesgos Financieros de la Naturaleza**
+    **Validación Académica de Riesgos Financieros de la Naturaleza (GI GICES)**
     
     Esta plataforma integra:
     1.  **SteelTrace:** Validación estructural de datos (Hard Compliance).
@@ -113,11 +125,12 @@ def main():
         with col1:
             st.subheader("A. El Dato Desafiante (Biodiversidad)")
             st.markdown("Ejemplo de dato complejo que requiere validación ética (ESRS E4).")
-            # Intentar mostrar el dato de biodiversidad si existe, si no, uno de ejemplo
+            
+            # Intentar mostrar el dato de biodiversidad si existe
             bio_path = DATA_PATH / "biodiversity_2024.json"
             if not bio_path.exists():
                 st.info("ℹ️ Archivo `biodiversity_2024.json` no detectado. Se creará durante la ejecución o carga manual.")
-                # Fallback visual
+                # Fallback visual para explicar el concepto
                 st.code("""
 [
   {
@@ -171,30 +184,45 @@ def main():
             explain_path = OUTPUT_PATH / "raga" / "explain.json"
             
             if explain_path.exists():
-                data = json.loads(explain_path.read_text(encoding="utf-8"))
-                
-                # Visualización especial para la validación académica
-                if "E4-5" in data or "kpi" in data: 
-                    # Detectamos si es el formato nuevo (gices_brain) o el integrado
-                    analysis = data.get("E4-5", {}).get("narrative") or data.get("raga_analysis", {}).get("narrative", "No disponible")
-                    compliance = data.get("raga_analysis", {}).get("compliance_check", "REVISIÓN")
-                    evidence = data.get("E4-5", {}).get("inquiry_tree", {}).get("evidence_used", []) or data.get("evidence_used", [])
-
-                    st.success("✅ Acta de Razonamiento Generada")
+                try:
+                    data = json.loads(explain_path.read_text(encoding="utf-8"))
                     
-                    with st.container(border=True):
-                        st.subheader("Veredicto de Integridad (Nature Credits)")
-                        st.write(analysis)
-                        st.divider()
-                        c1, c2 = st.columns(2)
-                        c1.metric("Estado de Cumplimiento", compliance)
-                        c1.metric("Score Epistémico (EEE)", "0.85 (Alto)")
+                    # Lógica para mostrar bonito el resultado de biodiversidad
+                    # Buscamos claves típicas que genera el script
+                    target_kpi = None
+                    for k, v in data.items():
+                        if "E4" in k or "biodiv" in str(k).lower():
+                            target_kpi = v
+                            break
+                    
+                    # Si encontramos el análisis deliberativo, lo mostramos formateado
+                    if target_kpi and "narrative" in target_kpi:
+                        st.success("✅ Acta de Razonamiento Generada")
                         
-                        c2.markdown("**Fuentes Académicas Citadas:**")
-                        for ev in evidence:
-                            c2.caption(f"📖 {ev[:100]}...")
-                else:
-                    st.json(data)
+                        with st.container(border=True):
+                            st.subheader("Veredicto de Integridad (Nature Credits)")
+                            st.markdown(f"**Análisis:** {target_kpi.get('narrative')}")
+                            
+                            st.divider()
+                            
+                            c1, c2 = st.columns(2)
+                            compliance = target_kpi.get("compliance", "REVISIÓN")
+                            c1.metric("Estado de Cumplimiento", compliance)
+                            c1.metric("Score Epistémico (EEE)", "0.85 (Alto)")
+                            
+                            c2.markdown("**Fuentes Académicas Citadas:**")
+                            evidence = target_kpi.get("evidence_used", [])
+                            if evidence:
+                                for ev in evidence:
+                                    c2.caption(f"📖 {ev[:100]}...")
+                            else:
+                                c2.caption("No se detectaron citas específicas.")
+                    else:
+                        # Si es un JSON genérico o de energía
+                        st.json(data)
+                        
+                except Exception as e:
+                    st.error(f"Error al leer el JSON de resultados: {e}")
             else:
                 st.info("Ejecuta la 'Deliberación IA' para ver el análisis aquí.")
 
@@ -212,6 +240,7 @@ def main():
         if audit_dir.exists():
             zips = list(audit_dir.glob("*.zip"))
             if zips:
+                # Coger el último ZIP generado
                 latest_zip = sorted(zips)[-1]
                 with open(latest_zip, "rb") as f:
                     st.download_button(
@@ -220,6 +249,8 @@ def main():
                         file_name=latest_zip.name,
                         mime="application/zip"
                     )
+            else:
+                st.warning("Carpeta de auditoría vacía.")
         
         with st.expander("Ver Manifiesto de Trazabilidad (JSON)"):
             safe_json_display(OUTPUT_PATH / "evidence" / "evidence_manifest.json")
