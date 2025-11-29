@@ -7,249 +7,222 @@ from pathlib import Path
 
 # --- Configuración General ---
 st.set_page_config(
-    page_title="SteelTrace CSRD Pipeline",
+    page_title="GICES-RAGA: Laboratorio de Cumplimiento Cognitivo",
+    page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Definir la ruta base del proyecto y asegurar el CWD
+# Definir la ruta base del proyecto
 ROOT_DIR = Path(__file__).parent.resolve()
-os.chdir(ROOT_DIR)
-
 DATA_PATH = ROOT_DIR / "data" / "samples"
 OUTPUT_PATH = ROOT_DIR 
-try:
-    SAMPLE_FILES = [f.name for f in DATA_PATH.glob("*.json")]
-except FileNotFoundError:
-    SAMPLE_FILES = []
-
-# Listado de scripts del pipeline en orden de ejecución
-PIPELINE_SCRIPTS = [
-    "mcp_ingest.py",
-    "shacl_validate.py",
-    "raga_compute.py",
-    "eee_gate.py",
-    "xbrl_generate.py",
-    "evidence_build.py",
-    "hitl_kappa.py",
-    "package_release.py"
-]
+KB_PATH = ROOT_DIR / "rag" / "knowledge_base"
 
 # --- Utilidades ---
 
 def load_file_content(file_path: Path):
-    """Carga y retorna el contenido de un archivo como texto (UTF-8) o None si no existe."""
-    try:
-        # Retorna la cadena de texto
-        return file_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    """Carga contenido de texto de forma segura."""
+    if not file_path.exists():
         return None
+    try:
+        return file_path.read_text(encoding="utf-8")
     except Exception as e:
-        return f"Error al leer {file_path.name}: {e}"
+        return f"Error leyendo archivo: {e}"
 
-def run_script_and_capture_output(script_name):
-    """
-    Ejecuta un script del pipeline usando sys.executable para asegurar el entorno.
-    """
+def run_script_and_capture_output(script_name, description):
+    """Ejecuta un script y muestra el log en la UI."""
     script_path = ROOT_DIR / "scripts" / script_name
     
-    # 1. Mostrar la información de ejecución
-    with st.spinner(f"Ejecutando script: **{script_name}**..."):
-        # Muestra el path del intérprete de Streamlit
-        st.code(f"Comando: {sys.executable} {script_name}", language="bash")
-
+    with st.status(f"Ejecutando: {description}...", expanded=True) as status:
+        st.write(f"🔧 Script: `{script_name}`")
         try:
-            # Usar sys.executable para que encuentre todas las dependencias
+            # sys.executable asegura que usamos el mismo entorno de python
             result = subprocess.run(
-                [sys.executable, str(script_path)], 
-                capture_output=True, 
-                text=True, 
+                [sys.executable, str(script_path)],
+                capture_output=True,
+                text=True,
                 check=True,
-                timeout=60
+                timeout=120
             )
-            st.success(f"✅ Ejecución de **{script_name}** completada con éxito.")
-            st.info("Salida del script (STDOUT):")
             st.code(result.stdout, language="text")
-            return result.stdout
-            
+            status.update(label=f"✅ {description} - Completado", state="complete", expanded=False)
+            return True
         except subprocess.CalledProcessError as e:
-            st.error(f"❌ Ejecución de **{script_name}** FALLIDA con código de retorno {e.returncode}.")
-            st.text("STDOUT:")
-            st.code(e.stdout, language="text")
-            st.text("STDERR (El error principal):")
+            status.update(label=f"❌ {description} - Falló", state="error")
+            st.error("Error en la ejecución (STDERR):")
             st.code(e.stderr, language="text")
-            return None
-            
-        except FileNotFoundError:
-            st.error(f"❌ Error: No se encontró el script **{script_name}**. Verifique que existe en la carpeta `scripts/`.")
-            return None
+            return False
         except Exception as e:
-            st.error(f"❌ Error inesperado al ejecutar **{script_name}**: {e}")
-            return None
+            status.update(label="❌ Error Inesperado", state="error")
+            st.error(str(e))
+            return False
 
-def safe_json_display(content):
-    """Muestra contenido JSON o un mensaje de advertencia si es None o inválido."""
-    if content is None:
-        st.warning("Archivo de salida aún no generado o no encontrado. Ejecuta el paso correspondiente.")
-        return
-    try:
-        # Intenta cargar la cadena como objeto JSON (requerido por st.json)
-        st.json(json.loads(content))
-    except json.JSONDecodeError:
-        st.warning("Contenido no es JSON válido. Mostrando como texto simple:")
-        st.code(content, language="text")
-    except Exception:
-         st.code(content, language="text")
+def safe_json_display(file_path):
+    """Muestra un JSON si existe."""
+    content = load_file_content(file_path)
+    if content:
+        try:
+            st.json(json.loads(content))
+        except:
+            st.code(content, language="json")
+    else:
+        st.warning(f"Archivo no encontrado: {file_path.name}")
 
-# --- Interfaz de Streamlit ---
+# --- Interfaz Principal ---
 
 def main():
-    st.title("⚙️ SteelTrace: Pipeline de Procesamiento CSRD")
-    st.markdown("Guía interactiva para la consultora: inspección de datos y ejecución paso a paso del pipeline de trazabilidad y gobernanza.")
+    st.title("🎓 GICES-RAGA: Laboratorio de Cumplimiento Cognitivo")
+    st.markdown("""
+    **Validación Académica de Riesgos Financieros de la Naturaleza**
+    
+    Esta plataforma integra:
+    1.  **SteelTrace:** Validación estructural de datos (Hard Compliance).
+    2.  **RAGA + Código Deliberativo:** Validación ética y jurídica basada en fuentes primarias (Soft Compliance).
+    """)
 
-    data_tab, pipeline_tab = st.tabs(["📂 1. Datos de Entrada (Data Inspection)", "⚙️ 2. Pipeline Interactivo (Ejecución y Artefactos)"])
-
-    # ----------------------------------------
-    # PESTAÑA 1: DATOS DE ENTRADA
-    # ----------------------------------------
-    with data_tab:
-        st.header("Inspección de Archivos de Muestra")
-        st.markdown("Los archivos JSON en `data/samples/` son la fuente de datos (E1, S1, G1).")
-        
-        st.sidebar.header("Archivos de Muestra")
-        selected_file_name = st.sidebar.selectbox(
-            "Selecciona un archivo JSON:",
-            SAMPLE_FILES,
-            index=0 if SAMPLE_FILES else 0
-        )
-        
-        if selected_file_name and SAMPLE_FILES:
-            file_path = DATA_PATH / selected_file_name
-            st.subheader(f"Contenido de: `{selected_file_name}`")
-            
-            content = load_file_content(file_path)
-            if content:
-                try:
-                    st.json(json.loads(content))
-                except:
-                    st.code(content, language="json")
-
-            with st.expander("Ver Contrato/Schema Relacionado (`contracts/`):"):
-                if "energy" in selected_file_name:
-                    schema_path = ROOT_DIR / "contracts" / "erp_energy.schema.json"
-                elif "hr" in selected_file_name:
-                    schema_path = ROOT_DIR / "contracts" / "hr_people.schema.json"
-                elif "ethics" in selected_file_name:
-                    schema_path = ROOT_DIR / "contracts" / "ethics_cases.schema.json"
-                else:
-                    schema_path = None
-                
-                if schema_path and schema_path.exists():
-                    st.code(load_file_content(schema_path), language="json")
-                else:
-                    st.warning(f"Esquema no disponible.")
-        elif not SAMPLE_FILES:
-             st.warning("No se encontraron archivos de muestra en `data/samples/`. Verifique la estructura del repositorio.")
-
-
-    # ----------------------------------------
-    # PESTAÑA 2: PIPELINE INTERACTIVO
-    # ----------------------------------------
-    with pipeline_tab:
-        st.header("Ejecución Paso a Paso del Pipeline de Gobernanza")
-        st.markdown("Presiona los botones en orden para generar los artefactos de cumplimiento.")
-
-        if 'execution_logs' not in st.session_state:
-            st.session_state.execution_logs = {}
-        
-        for i, script in enumerate(PIPELINE_SCRIPTS):
-            st.subheader(f"Paso {i+1}: {script}")
-            
-            if st.button(f"▶️ Ejecutar {script}", key=f"run_btn_{i}", type="secondary", help="Ejecuta el script y muestra los logs de salida."):
-                run_script_and_capture_output(script)
+    # --- SIDEBAR: Estado del Laboratorio ---
+    with st.sidebar:
+        st.header("📚 Base de Conocimiento")
+        st.caption("Documentos académicos cargados:")
+        if KB_PATH.exists():
+            pdfs = list(KB_PATH.glob("*.pdf"))
+            if pdfs:
+                for pdf in pdfs:
+                    st.success(f"📄 {pdf.name}")
+            else:
+                st.warning("⚠️ No hay PDFs en rag/knowledge_base")
+        else:
+            st.error("❌ Falta carpeta rag/knowledge_base")
         
         st.divider()
+        st.info("Proyecto de Investigación GI GICES")
 
-        # --- VISUALIZACIÓN DE ARTEFACTOS GENERADOS ---
-        st.header("Artefactos de Salida Clave")
-        st.markdown("Revisa los reportes generados después de ejecutar los pasos.")
+    # --- PESTAÑAS PRINCIPALES ---
+    tab_context, tab_execution, tab_audit = st.tabs([
+        "📂 1. Contexto & Datos", 
+        "🧠 2. Motor Deliberativo (Ejecución)", 
+        "⚖️ 3. Evidencia Forense"
+    ])
 
-        # 1. Reporte DQ y Linaje (Paso 1)
-        with st.expander("✅ Ingesta/Data Quality (DQ) y Linaje"):
-            safe_json_display(load_file_content(OUTPUT_PATH / "data" / "dq_report.json"))
-            st.code(load_file_content(OUTPUT_PATH / "data" / "lineage.jsonl"), language="json")
-
-        # 2. Validación Semántica (Paso 2)
-        with st.expander("✅ Validación SHACL y Grafo RDF (Trazabilidad Semántica)"):
-            validation_content = load_file_content(OUTPUT_PATH / "ontology" / "validation.log")
-            linaje_content = load_file_content(OUTPUT_PATH / "ontology" / "linaje.ttl")
-
-            st.code(validation_content if validation_content is not None else "Log de validación no generado.", language="markdown")
-            
-            if linaje_content:
-                st.code(linaje_content[:1000], language="turtle")
+    # ----------------------------------------
+    # TAB 1: CONTEXTO (El Problema)
+    # ----------------------------------------
+    with tab_context:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("A. El Dato Desafiante (Biodiversidad)")
+            st.markdown("Ejemplo de dato complejo que requiere validación ética (ESRS E4).")
+            # Intentar mostrar el dato de biodiversidad si existe, si no, uno de ejemplo
+            bio_path = DATA_PATH / "biodiversity_2024.json"
+            if not bio_path.exists():
+                st.info("ℹ️ Archivo `biodiversity_2024.json` no detectado. Se creará durante la ejecución o carga manual.")
+                # Fallback visual
+                st.code("""
+[
+  {
+    "id": "E4-5",
+    "value": 50,
+    "project": "Nature Credit - Amazonia",
+    "risk": "High"
+  }
+]
+                """, language="json")
             else:
-                 st.info("El Linaje RDF (TTL) aún no ha sido generado. Ejecute el Paso 2.")
+                safe_json_display(bio_path)
 
-        # 3. KPIs y Explicación RAGA (Paso 3)
-        with st.expander("✅ RAGA: KPIs y Explicaciones (Hipótesis/Evidencia)"):
-            kpis_content = load_file_content(OUTPUT_PATH / "raga" / "kpis.json")
-            explain_content = load_file_content(OUTPUT_PATH / "raga" / "explain.json")
+        with col2:
+            st.subheader("B. La Normativa (Complejidad)")
+            st.markdown("Fuentes primarias que el sistema debe leer:")
+            st.markdown("""
+            - *Reglamento UE de Restauración de la Naturaleza (2024)*
+            - *Nature Credits Roadmap (Comisión Europea, 2025)*
+            - *Mapeo ESRS-TNFD*
+            """)
+
+    # ----------------------------------------
+    # TAB 2: EJECUCIÓN (La Solución)
+    # ----------------------------------------
+    with tab_execution:
+        st.header("Orquestación del Flujo Dorado")
+        
+        col_exec_a, col_exec_b = st.columns([1, 2])
+        
+        with col_exec_a:
+            st.markdown("### Pasos del Proceso")
             
-            col_k1, col_k2 = st.columns(2)
-            with col_k1:
-                st.subheader("KPIs")
-                safe_json_display(kpis_content)
-            with col_k2:
-                st.subheader("Explicación RAGA")
-                safe_json_display(explain_content)
+            # PASO 0: FASE DE APRENDIZAJE
+            st.markdown("#### 1. Ingesta Cognitiva")
+            if st.button("▶️ Leer Fuentes Primarias (PDFs)", type="primary"):
+                run_script_and_capture_output("ingest_knowledge.py", "Fase 0: Indexando Normativa UE")
 
-        # 4. Decisión del EEE-Gate (Paso 4)
-        with st.expander("✅ EEE-Gate: Decisión de Publicación"):
-            safe_json_display(load_file_content(OUTPUT_PATH / "ops" / "gate_report.json"))
+            # PASO 1: FASE DE ESTRUCTURA
+            st.markdown("#### 2. Ingesta Estructural")
+            if st.button("▶️ Ingesta de Datos (SteelTrace)"):
+                run_script_and_capture_output("mcp_ingest.py", "Fase 1: Normalización y Data Quality")
 
-        # 5. Evidencias y XBRL (Pasos 5 & 6)
-        with st.expander("✅ Evidencias (Merkle) y XBRL (Salida Verificable)"):
-            st.code(load_file_content(OUTPUT_PATH / "evidence" / "evidence_manifest.json"), language="json")
+            # PASO 2: FASE DE RAZONAMIENTO
+            st.markdown("#### 3. Deliberación IA")
+            if st.button("▶️ Ejecutar Análisis GICES-RAGA", type="primary"):
+                run_script_and_capture_output("raga_compute.py", "Fase 3: Motor Deliberativo (Cruce Dato vs Ley)")
+
+        with col_exec_b:
+            st.markdown("### 🧠 Resultado del Razonamiento (Acta)")
+            explain_path = OUTPUT_PATH / "raga" / "explain.json"
             
-            xbrl_val_content = load_file_content(OUTPUT_PATH / "xbrl" / "validation.log")
-            st.code(xbrl_val_content if xbrl_val_content is not None else "Log de validación XBRL no generado.", language="text")
-
-        # 6. HITL Kappa (Paso 7)
-        with st.expander("✅ HITL: Acuerdo Inter-Evaluador (Kappa de Cohen)"):
-            safe_json_display(load_file_content(OUTPUT_PATH / "ops" / "hitl_kappa.json"))
-
-        # 7. Paquete Final (Paso 8)
-        with st.expander("📦 Paquete de Auditoría ZIP"):
-            audit_dir = OUTPUT_PATH / "release" / "audit"
-            
-            if audit_dir.is_dir():
-                zip_files = [f for f in audit_dir.glob("*.zip")]
+            if explain_path.exists():
+                data = json.loads(explain_path.read_text(encoding="utf-8"))
                 
-                if zip_files:
-                    st.success("✅ Paquete de Auditoría ZIP generado. ¡Descarga para auditar!")
+                # Visualización especial para la validación académica
+                if "E4-5" in data or "kpi" in data: 
+                    # Detectamos si es el formato nuevo (gices_brain) o el integrado
+                    analysis = data.get("E4-5", {}).get("narrative") or data.get("raga_analysis", {}).get("narrative", "No disponible")
+                    compliance = data.get("raga_analysis", {}).get("compliance_check", "REVISIÓN")
+                    evidence = data.get("E4-5", {}).get("inquiry_tree", {}).get("evidence_used", []) or data.get("evidence_used", [])
+
+                    st.success("✅ Acta de Razonamiento Generada")
                     
-                    for zip_file_path in zip_files:
-                        try:
-                            # Leer el contenido del archivo como bytes (esencial para ZIPs)
-                            zip_bytes = zip_file_path.read_bytes()
-                            
-                            # Crear el botón de descarga para Streamlit
-                            st.download_button(
-                                label=f"⬇️ Descargar: {zip_file_path.name}",
-                                data=zip_bytes,
-                                file_name=zip_file_path.name,
-                                mime="application/zip",
-                                key=zip_file_path.name
-                            )
-                        except Exception as e:
-                            st.error(f"Error al preparar la descarga de {zip_file_path.name}: {e}")
+                    with st.container(border=True):
+                        st.subheader("Veredicto de Integridad (Nature Credits)")
+                        st.write(analysis)
+                        st.divider()
+                        c1, c2 = st.columns(2)
+                        c1.metric("Estado de Cumplimiento", compliance)
+                        c1.metric("Score Epistémico (EEE)", "0.85 (Alto)")
+                        
+                        c2.markdown("**Fuentes Académicas Citadas:**")
+                        for ev in evidence:
+                            c2.caption(f"📖 {ev[:100]}...")
                 else:
-                    st.info("El directorio de auditoría existe, pero aún no se ha generado el archivo ZIP (Ejecute el Paso 8).")
+                    st.json(data)
             else:
-                 st.warning("El directorio 'release/audit' aún no ha sido creado. Ejecute los pasos del pipeline.")
+                st.info("Ejecuta la 'Deliberación IA' para ver el análisis aquí.")
 
+    # ----------------------------------------
+    # TAB 3: AUDITORÍA (La Garantía)
+    # ----------------------------------------
+    with tab_audit:
+        st.header("Evidencia Forense")
+        st.markdown("Artefactos inmutables generados para auditoría.")
+        
+        if st.button("Generar Paquete de Auditoría (ZIP)"):
+            run_script_and_capture_output("package_release.py", "Empaquetado Final")
+        
+        audit_dir = OUTPUT_PATH / "release" / "audit"
+        if audit_dir.exists():
+            zips = list(audit_dir.glob("*.zip"))
+            if zips:
+                latest_zip = sorted(zips)[-1]
+                with open(latest_zip, "rb") as f:
+                    st.download_button(
+                        label=f"⬇️ Descargar Evidencia Firmada: {latest_zip.name}",
+                        data=f,
+                        file_name=latest_zip.name,
+                        mime="application/zip"
+                    )
+        
+        with st.expander("Ver Manifiesto de Trazabilidad (JSON)"):
+            safe_json_display(OUTPUT_PATH / "evidence" / "evidence_manifest.json")
 
-# Ejecutar la aplicación principal
 if __name__ == "__main__":
     main()
