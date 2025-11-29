@@ -1,10 +1,11 @@
 streamlit
 pandas
 openai
+pymupdf
 pyshacl
 rdflib
 jsonschema
 pyyaml
 plotly
 networkx
-pymupdf 
+lxml
