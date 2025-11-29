@@ -28,7 +28,7 @@ KB_PATH = ROOT_DIR / "rag" / "knowledge_base"
 # --- UTILIDADES DE VISUALIZACIÓN ---
 
 def plot_eee_radar(metrics=None):
-    """Genera el gráfico de radar EEE con etiquetas visibles."""
+    """Genera el gráfico de radar EEE con etiquetas visibles y rangos fijos."""
     if metrics is None:
         metrics = {'Profundidad': 0.8, 'Pluralidad': 0.7, 'Trazabilidad': 0.9, 'Evidencia': 0.85, 'Ética': 0.9}
 
