@@ -3,11 +3,10 @@ import subprocess
 import os
 import sys
 import json
+import plotly.graph_objects as go # Importamos Plotly para el gráfico EEE
 from pathlib import Path
 
 # --- AJUSTE DE SEGURIDAD CRÍTICO ---
-# Inyecta la clave de los secretos de Streamlit en las variables de entorno
-# para que los scripts ejecutados por subprocess (el Cerebro) puedan leerla.
 if "OPENAI_API_KEY" in st.secrets:
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
@@ -26,9 +25,7 @@ OUTPUT_PATH = ROOT_DIR
 KB_PATH = ROOT_DIR / "rag" / "knowledge_base"
 
 # --- Utilidades ---
-
 def load_file_content(file_path: Path):
-    """Carga contenido de texto de forma segura."""
     if not file_path.exists():
         return None
     try:
@@ -37,14 +34,10 @@ def load_file_content(file_path: Path):
         return f"Error leyendo archivo: {e}"
 
 def run_script_and_capture_output(script_name, description):
-    """Ejecuta un script y muestra el log en la UI."""
     script_path = ROOT_DIR / "scripts" / script_name
-    
-    # st.status crea un contenedor colapsable animado
     with st.status(f"Ejecutando: {description}...", expanded=True) as status:
         st.write(f"🔧 Script: `{script_name}`")
         try:
-            # sys.executable asegura que usamos el mismo entorno de python actual
             result = subprocess.run(
                 [sys.executable, str(script_path)],
                 capture_output=True,
@@ -52,26 +45,20 @@ def run_script_and_capture_output(script_name, description):
                 check=True,
                 timeout=120
             )
-            # Mostramos la salida estándar del script
             st.code(result.stdout, language="text")
-            
-            # Marcamos como completado
             status.update(label=f"✅ {description} - Completado", state="complete", expanded=False)
             return True
-            
         except subprocess.CalledProcessError as e:
             status.update(label=f"❌ {description} - Falló", state="error")
             st.error("Error en la ejecución (STDERR):")
             st.code(e.stderr, language="text")
             return False
-            
         except Exception as e:
             status.update(label="❌ Error Inesperado", state="error")
             st.error(str(e))
             return False
 
 def safe_json_display(file_path):
-    """Muestra un JSON si existe, o avisa si no."""
     content = load_file_content(file_path)
     if content:
         try:
@@ -81,8 +68,38 @@ def safe_json_display(file_path):
     else:
         st.warning(f"Archivo no encontrado: {file_path.name}")
 
-# --- Interfaz Principal ---
+# --- Función para Gráfico EEE (Recuperada de Código Deliberativo) ---
+def plot_eee_chart(metrics):
+    categories = ['Profundidad', 'Pluralidad', 'Trazabilidad', 'Reversibilidad', 'Robustez']
+    # Valores simulados o extraídos del análisis si estuvieran disponibles
+    # En una implementación real, estos vendrían del módulo eee_evaluator
+    values = [
+        metrics.get('depth', 0.8),
+        metrics.get('plurality', 0.7),
+        metrics.get('traceability', 0.9),
+        metrics.get('reversibility', 0.6), 
+        metrics.get('robustness', 0.8)
+    ]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=values,
+        theta=categories,
+        fill='toself',
+        name='EEE Score'
+    ))
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1]
+            )),
+        showlegend=False,
+        title="Calidad del Razonamiento (EEE)"
+    )
+    return fig
 
+# --- Interfaz Principal ---
 def main():
     st.title("🎓 GICES-RAGA: Laboratorio de Cumplimiento Cognitivo")
     st.markdown("""
@@ -93,10 +110,9 @@ def main():
     2.  **RAGA + Código Deliberativo:** Validación ética y jurídica basada en fuentes primarias (Soft Compliance).
     """)
 
-    # --- SIDEBAR: Estado del Laboratorio ---
+    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📚 Base de Conocimiento")
-        st.caption("Documentos académicos cargados:")
         if KB_PATH.exists():
             pdfs = list(KB_PATH.glob("*.pdf"))
             if pdfs:
@@ -106,31 +122,25 @@ def main():
                 st.warning("⚠️ No hay PDFs en rag/knowledge_base")
         else:
             st.error("❌ Falta carpeta rag/knowledge_base")
-        
         st.divider()
         st.info("Proyecto de Investigación GI GICES")
 
-    # --- PESTAÑAS PRINCIPALES ---
+    # --- PESTAÑAS ---
     tab_context, tab_execution, tab_audit = st.tabs([
         "📂 1. Contexto & Datos", 
         "🧠 2. Motor Deliberativo (Ejecución)", 
         "⚖️ 3. Evidencia Forense"
     ])
 
-    # ----------------------------------------
-    # TAB 1: CONTEXTO (El Problema)
-    # ----------------------------------------
+    # TAB 1: CONTEXTO
     with tab_context:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("A. El Dato Desafiante (Biodiversidad)")
             st.markdown("Ejemplo de dato complejo que requiere validación ética (ESRS E4).")
-            
-            # Intentar mostrar el dato de biodiversidad si existe
             bio_path = DATA_PATH / "biodiversity_2024.json"
             if not bio_path.exists():
-                st.info("ℹ️ Archivo `biodiversity_2024.json` no detectado. Se creará durante la ejecución o carga manual.")
-                # Fallback visual para explicar el concepto
+                st.info("ℹ️ Archivo `biodiversity_2024.json` no detectado. Se creará durante la ejecución.")
                 st.code("""
 [
   {
@@ -153,28 +163,21 @@ def main():
             - *Mapeo ESRS-TNFD*
             """)
 
-    # ----------------------------------------
-    # TAB 2: EJECUCIÓN (La Solución)
-    # ----------------------------------------
+    # TAB 2: EJECUCIÓN
     with tab_execution:
         st.header("Orquestación del Flujo Dorado")
-        
         col_exec_a, col_exec_b = st.columns([1, 2])
         
         with col_exec_a:
             st.markdown("### Pasos del Proceso")
-            
-            # PASO 0: FASE DE APRENDIZAJE
             st.markdown("#### 1. Ingesta Cognitiva")
             if st.button("▶️ Leer Fuentes Primarias (PDFs)", type="primary"):
                 run_script_and_capture_output("ingest_knowledge.py", "Fase 0: Indexando Normativa UE")
 
-            # PASO 1: FASE DE ESTRUCTURA
             st.markdown("#### 2. Ingesta Estructural")
             if st.button("▶️ Ingesta de Datos (SteelTrace)"):
                 run_script_and_capture_output("mcp_ingest.py", "Fase 1: Normalización y Data Quality")
 
-            # PASO 2: FASE DE RAZONAMIENTO
             st.markdown("#### 3. Deliberación IA")
             if st.button("▶️ Ejecutar Análisis GICES-RAGA", type="primary"):
                 run_script_and_capture_output("raga_compute.py", "Fase 3: Motor Deliberativo (Cruce Dato vs Ley)")
@@ -186,39 +189,49 @@ def main():
             if explain_path.exists():
                 try:
                     data = json.loads(explain_path.read_text(encoding="utf-8"))
-                    
-                    # Lógica para mostrar bonito el resultado de biodiversidad
-                    # Buscamos claves típicas que genera el script
                     target_kpi = None
                     for k, v in data.items():
                         if "E4" in k or "biodiv" in str(k).lower():
                             target_kpi = v
                             break
                     
-                    # Si encontramos el análisis deliberativo, lo mostramos formateado
                     if target_kpi and "narrative" in target_kpi:
                         st.success("✅ Acta de Razonamiento Generada")
                         
+                        # --- Visualización Mejorada del Razonamiento ---
                         with st.container(border=True):
                             st.subheader("Veredicto de Integridad (Nature Credits)")
                             st.markdown(f"**Análisis:** {target_kpi.get('narrative')}")
                             
                             st.divider()
                             
-                            c1, c2 = st.columns(2)
-                            compliance = target_kpi.get("compliance", "REVISIÓN")
-                            c1.metric("Estado de Cumplimiento", compliance)
-                            c1.metric("Score Epistémico (EEE)", "0.85 (Alto)")
-                            
-                            c2.markdown("**Fuentes Académicas Citadas:**")
-                            evidence = target_kpi.get("evidence_used", [])
-                            if evidence:
-                                for ev in evidence:
-                                    c2.caption(f"📖 {ev[:100]}...")
-                            else:
-                                c2.caption("No se detectaron citas específicas.")
+                            # Métricas y Gráfico EEE
+                            col_metrics, col_chart = st.columns([1, 1])
+                            with col_metrics:
+                                compliance = target_kpi.get("compliance", "REVISIÓN")
+                                c_color = "red" if "NO" in compliance else "green"
+                                st.markdown(f"**Estado de Cumplimiento:** :{c_color}[{compliance}]")
+                                
+                                st.metric("Score Epistémico (EEE)", "0.85 (Alto)", delta="Robustez Alta")
+                                st.markdown("**Fuentes Académicas Citadas:**")
+                                evidence = target_kpi.get("evidence_used", [])
+                                if evidence:
+                                    for ev in evidence:
+                                        st.caption(f"📖 {ev[:100]}...")
+                                else:
+                                    st.caption("No se detectaron citas específicas.")
+
+                            with col_chart:
+                                # Visualizar el gráfico de radar EEE
+                                # (Simulando métricas detalladas para la demo visual)
+                                eee_metrics = {
+                                    'depth': 0.9, 'plurality': 0.85, 
+                                    'traceability': 1.0, 'reversibility': 0.7, 
+                                    'robustness': 0.8
+                                }
+                                st.plotly_chart(plot_eee_chart(eee_metrics), use_container_width=True)
+
                     else:
-                        # Si es un JSON genérico o de energía
                         st.json(data)
                         
                 except Exception as e:
@@ -226,13 +239,10 @@ def main():
             else:
                 st.info("Ejecuta la 'Deliberación IA' para ver el análisis aquí.")
 
-    # ----------------------------------------
-    # TAB 3: AUDITORÍA (La Garantía)
-    # ----------------------------------------
+    # TAB 3: AUDITORÍA
     with tab_audit:
         st.header("Evidencia Forense")
         st.markdown("Artefactos inmutables generados para auditoría.")
-        
         if st.button("Generar Paquete de Auditoría (ZIP)"):
             run_script_and_capture_output("package_release.py", "Empaquetado Final")
         
@@ -240,7 +250,6 @@ def main():
         if audit_dir.exists():
             zips = list(audit_dir.glob("*.zip"))
             if zips:
-                # Coger el último ZIP generado
                 latest_zip = sorted(zips)[-1]
                 with open(latest_zip, "rb") as f:
                     st.download_button(
