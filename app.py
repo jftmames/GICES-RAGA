@@ -262,6 +262,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-Esta versión es mucho más rica visualmente y **cuenta la historia** de cómo tu IA investiga, delibera y concluye, conectando los tres mundos (Datos, Investigación, Auditoría).
