@@ -241,11 +241,29 @@ def main():
             st.subheader("Normativa")
             st.success("✅ Reglamento UE Restauración")
             st.success("✅ Nature Credits Roadmap")
+            
+            # --- NUEVO BOTÓN CON BARRA DE PROGRESO ---
             if st.button("🔄 Indexar PDFs (Embeddings)"):
-                # Llamamos a la nueva función de ingesta vectorial
+                # 1. Crear la barra vacía
+                progress_bar = st.progress(0, text="Iniciando motores de ingesta...")
+                
+                # 2. Definir la función que actualiza la barra
+                def update_ui(percent, message):
+                    # Nos aseguramos que el porcentaje esté entre 0.0 y 1.0
+                    safe_percent = min(max(percent, 0.0), 1.0)
+                    progress_bar.progress(safe_percent, text=message)
+                
+                # 3. Llamar al cerebro pasando la función
                 try:
-                    gices_brain.ingest_pdfs(str(KB_PATH))
-                    st.success("Base de Conocimiento Vectorial Actualizada")
+                    # Borramos la memoria vieja para forzar recarga (opcional)
+                    # if (KB_PATH.parent / "knowledge_vectors.json").exists():
+                    #    (KB_PATH.parent / "knowledge_vectors.json").unlink()
+
+                    gices_brain.ingest_pdfs(str(KB_PATH), progress_callback=update_ui)
+                    
+                    st.success("✅ Base de Conocimiento Vectorial Actualizada")
+                    time.sleep(1) # Dar tiempo a leer el 100%
+                    progress_bar.empty() # Limpiar la barra
                 except Exception as e:
                     st.error(f"Error indexando: {e}")
 
