@@ -12,6 +12,13 @@ import hashlib
 from datetime import datetime
 import zipfile
 
+# --- IMPORTACIÓN DEL CEREBRO (NUEVO) ---
+# Importamos el módulo cognitivo para usar la nueva búsqueda vectorial
+try:
+    import modules.gices_brain as gices_brain
+except ImportError:
+    st.error("❌ Error: No se encuentra el módulo 'modules.gices_brain'. Verifica la estructura de carpetas.")
+
 # --- AJUSTE DE SEGURIDAD CRÍTICO ---
 if "OPENAI_API_KEY" in st.secrets:
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
@@ -85,7 +92,7 @@ def generate_secure_package():
                 path.write_text(json.dumps(MOCK_DATA, indent=2))
             else:
                 path.write_text(json.dumps({"status": "generated_for_audit"}, indent=2))
-
+    
     # 3. Construir Manifiesto de Integridad
     manifest_entries = []
     hash_list = []
@@ -100,6 +107,17 @@ def generate_secure_package():
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             })
     
+    # MEJORA: Calcular Hash de la evidencia PDF principal si existe
+    # Esto asegura la trazabilidad forense solicitada en el paso 4
+    pdf_evidence = KB_PATH / "2025_7_7_EC_NATURE CREDITS_SPA.pdf"
+    if pdf_evidence.exists():
+         pdf_hash = calculate_file_hash(pdf_evidence)
+         manifest_entries.append({
+             "file": pdf_evidence.name,
+             "sha256": pdf_hash,
+             "type": "NORMATIVA_BASE"
+         })
+
     # Calcular Merkle Root (Hash de los hashes)
     combined_hash = "".join(sorted(hash_list))
     merkle_root = hashlib.sha256(combined_hash.encode('utf-8')).hexdigest()
@@ -188,7 +206,7 @@ def safe_json_display(file_path):
         except: st.code(file_path.read_text(encoding="utf-8"))
     else: st.warning(f"Archivo no encontrado: {file_path.name}")
 
-# --- APP ---
+# --- APP PRINCIPAL ---
 
 def main():
     st.title("🎓 GICES-RAGA: Laboratorio de Cumplimiento Cognitivo")
@@ -202,10 +220,15 @@ def main():
         st.divider()
         st.info("Proyecto GI GICES")
 
-    # --- DEFINICIÓN DE PESTAÑAS (CORREGIDO) ---
-    tab_context, tab_deliberation, tab_audit = st.tabs(["1. Contexto & Datos", "2. Razonamiento (IA)", "3. Evidencia Forense"])
+    # --- DEFINICIÓN DE PESTAÑAS (ACTUALIZADO PARA ECOACSA) ---
+    tab_context, tab_deliberation, tab_audit, tab_ecoacsa = st.tabs([
+        "1. Contexto & Datos", 
+        "2. Razonamiento (IA)", 
+        "3. Evidencia Forense",
+        "4. Auditoría ECOACSA (BETA)"
+    ])
 
-    # TAB 1
+    # TAB 1: CONTEXTO
     with tab_context:
         c1, c2 = st.columns(2)
         with c1:
@@ -218,10 +241,15 @@ def main():
             st.subheader("Normativa")
             st.success("✅ Reglamento UE Restauración")
             st.success("✅ Nature Credits Roadmap")
-            if st.button("🔄 Indexar PDFs"):
-                run_script("ingest_knowledge.py", "Indexando")
+            if st.button("🔄 Indexar PDFs (Embeddings)"):
+                # Llamamos a la nueva función de ingesta vectorial
+                try:
+                    gices_brain.ingest_pdfs(str(KB_PATH))
+                    st.success("Base de Conocimiento Vectorial Actualizada")
+                except Exception as e:
+                    st.error(f"Error indexando: {e}")
 
-    # TAB 2
+    # TAB 2: RAZONAMIENTO
     with tab_deliberation:
         st.header("Motor Deliberativo")
         if 'run_done' not in st.session_state: st.session_state.run_done = False
@@ -277,7 +305,7 @@ def main():
         elif not st.session_state.run_done:
             st.info("Esperando ejecución...")
 
-    # TAB 3 (CORREGIDO: Uso explícito de la variable tab_audit)
+    # TAB 3: AUDITORÍA FORENSE
     with tab_audit:
         st.header("Evidencia Forense Inmutable")
         st.markdown("""
@@ -324,6 +352,58 @@ def main():
                     st.caption(f"Merkle Root: {manifest_data['merkle_root']}")
             else:
                 st.warning("⚠️ Manifiesto no disponible. Ejecuta la generación.")
+
+    # --- TAB 4: AUDITORÍA ECOACSA (NUEVO) ---
+    with tab_ecoacsa:
+        st.header("Validación de Créditos de Naturaleza (Normativa UE 2025)")
+        st.markdown("Esta herramienta cruza datos de proyectos con la *Hoja de Ruta de Créditos de Naturaleza*.")
+        
+        if st.button("🛡️ Ejecutar Auditoría de Permanencia", type="primary"):
+            try:
+                with st.spinner("🔍 Consultando normativa UE y analizando riesgo..."):
+                    # a) Recuperar contexto normativo
+                    query = '¿Cuáles son los requisitos de permanencia y adicionalidad según el documento Nature Credits Roadmap 2025?'
+                    context_chunks = gices_brain.retrieve_context(query, k=4)
+                    
+                    # b) Mostrar evidencia cruda
+                    with st.expander("📄 Evidencia Normativa Recuperada (Raw)", expanded=False):
+                        if context_chunks:
+                            for c in context_chunks:
+                                st.markdown(f"**Fuente:** {c['source']} (Pág. {c['page']})")
+                                st.caption(f"...{c['content'][:400]}...")
+                                st.divider()
+                        else:
+                            st.warning("No se encontró evidencia relevante en la Base de Conocimiento.")
+
+                    # c) Dato de prueba
+                    test_data = {
+                        'project_type': 'Reforestación Activa', 
+                        'area': '150ha', 
+                        'permanence_guarantee': '10 años'
+                    }
+                    st.info(f"📋 Dato Auditado: {test_data}")
+
+                    # d) Análisis Deliberativo
+                    result = gices_brain.deliberative_analysis(test_data, context_chunks, mode="ECOACSA Audit")
+
+                    # e) Resultado final
+                    st.subheader("Dictamen del Auditor IA")
+                    
+                    check = result.get("compliance_check", "UNKNOWN").upper()
+                    narrative = result.get("narrative", "Sin análisis")
+                    
+                    if "CUMPLE" in check and "NO" not in check and "RIESGO" not in check:
+                        st.success(f"✅ VEREDICTO: {check}")
+                    elif "RIESGO" in check:
+                        st.warning(f"⚠️ VEREDICTO: {check}")
+                    else:
+                        st.error(f"❌ VEREDICTO: {check}")
+                    
+                    st.write(f"**Justificación:** {narrative}")
+                    st.json(result)
+
+            except Exception as e:
+                st.error(f"Error en el proceso de auditoría: {e}")
 
 if __name__ == "__main__":
     main()
