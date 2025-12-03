@@ -3,6 +3,8 @@ openai
 pymupdf
 plotly
 graphviz
+pandas
+openpyxl
 # --- DEPENDENCIAS PARA VECTORES ---
 numpy
 scikit-learn
